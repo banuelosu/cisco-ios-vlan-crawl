@@ -1,3 +1,4 @@
+import csv
 import copy
 import os
 import sys
@@ -18,9 +19,10 @@ def main():
     print_banner()
 
     master_obj_list = [] # Used to track the Device objects created throughout the script
-    temp_obj_list = []
-    temp_obj_list2 = []
-    fail_auth_list = []
+    temp_obj_list = [] # Used as a temporary list to track new neighbors
+    temp_obj_list2 = [] # Used as a list to store Device objects 
+    fail_auth_list = [] # Stores hostnames of devices that failed authentication
+    temp_hostname_list = []
     
     hostname = 'san-n-sbx-sw-01'
     device = Device(hostname)
@@ -32,17 +34,17 @@ def main():
         exit()
 
     # vlan_list = sorted([113,144,171,173,176,180,181,182,183,184,195,932,940,943,990,996,1210,1212,1213,1215,1217,1220,1221,1267,1268,1269,1288,1396,1496,1700,1701,1702,1703,1704,1705,1706,1707,1708,1709,1710,1711,1712,1713,1714,1715,1716,1717,1718,1719,1720,1721,1722,1723,1724,1730,1731,1732,1733,1741,1742,1743,1745,1746,1750,1751,1752,1753,1755,1756,1759,1761,1762,1763,1764,1765,1766,1767,1768,1769,1770,1771,1772,1773,1774,1781,1782,1811,1814,1818,1819,1822,1823,1826,1831,1832,1833,1834,1835,1836,1837,1838,1839,1840,1841,1842,1843,1844,1845,1846,1847,1848,1849,1850,1851,1852,1853,1854,1855,1856,1859,1860,1861,1862,1863,1864,1865,1866,1867,1868,1871,1872,1873,1874,1875,1876,1877,1878,1881,1882,1887,1892,1893,1899])
-    vlan_list = sorted([1884, 1885, 1218, 113])
+    vlan_list = sorted([1218])
+    # vlan_list = sorted([113,184,195,932,940,943,990,1210,1212,1213,1217,1496,1715,1716,1717,1750,1867,1868,1871,1872,1873,1874])
 
     vlan_name_dict = vlan_names(vlan_list, credentials, hostname) # Returns dictionary with id:name mappings
     
+    device.get_cdp()
     for vlan in vlan_list: 
         device.get_stp(vlan)
         device.get_macs(vlan)
-    device.get_cdp()
     device.merge_info(vlan_name_dict) # Creates dictionary will all information collected in the methods above
     
-    temp_hostname_list = []
     for k in device.vlan_mapping:
         for neighbor in device.vlan_mapping[k]['neighbors']:
             if neighbor not in [obj.hostname for obj in master_obj_list]:
@@ -89,8 +91,40 @@ def main():
             continue
     
     # for obj in master_obj_list:
-    #     print(json.dumps({obj.hostname: obj.vlan_mapping}, indent=4, sort_keys='True'))
+        # print(json.dumps({obj.hostname: obj.vlan_mapping}, indent=4, sort_keys='True'))
 
+    master_vlan_dict = {}
+    for obj in master_obj_list:
+        for (key, value) in obj.vlan_mapping.items():
+            master_vlan_dict[key] = {'name': value['name'], 'devices': []}
+
+    for obj in master_obj_list:
+        for (key, value) in obj.vlan_mapping.items():
+            if key in master_vlan_dict:
+                master_vlan_dict[key]['devices'].extend(value['neighbors'])
+
+    for (key, value) in master_vlan_dict.items():
+        value['devices'] = list(set(value['devices']))
+
+    # print(json.dumps(master_vlan_dict, indent=4, sort_keys='True'))    
+
+    file_name = 'vlan_crawl.csv'
+    print('Writing results to {}'.format(file_name))
+
+    with open(file_name, 'w') as f:
+        writer = csv.writer(f)
+
+        header = ['VLAN', 'NAME', 'DEVICES']
+        writer.writerow(header)
+
+        for vlan in master_vlan_dict:
+            line = [vlan, master_vlan_dict[vlan]['name'], None]
+            writer.writerow(line)
+            for device in master_vlan_dict[vlan]['devices']:
+                line = [None, None, device]
+                writer.writerow(line)
+
+    print('\nThe script has finished successfully.\n')
 
 def confirm_pass():
     while True:
@@ -238,9 +272,7 @@ class Device:
         command = 'show mac address-table dynamic vlan {}'.format(vlan_id)
         print("  Device: {}, command: {}".format(self.hostname, command))
         results = self.device_connector.send_command(command)
-        temp_dict = {vlan_id: results}
-
-        self.macs.update(temp_dict)
+        self.macs.update({vlan_id: results})
 
     def get_cdp(self):
         template_file = "./templates/cdp.template"
@@ -259,8 +291,7 @@ class Device:
                 n[3] = n[3].replace(o, o[:2])
                 n[4] = n[4].replace(o, o[:2])
 
-            temp_dict = {n[4]: n[0]}
-            self.cdp.update(temp_dict)
+            self.cdp.update({n[4]: n[0]})
 
     def merge_info(self, vlan_name_dict):
         self.vlan_mapping = copy.deepcopy(self.stp)
