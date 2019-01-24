@@ -296,7 +296,9 @@ class Device:
     def merge_info(self, vlan_name_dict):
         self.vlan_mapping = copy.deepcopy(self.stp)
 
-        for k in self.vlan_mapping: self.vlan_mapping[k]['neighbors'] = []; self.vlan_mapping[k]['name'] = None
+        for k in self.vlan_mapping: 
+            self.vlan_mapping[k]['neighbors'] = []
+            self.vlan_mapping[k]['name'] = None
         for k in self.vlan_mapping:
             for interface in self.vlan_mapping[k]['interfaces']:
                 if interface in self.cdp:
